@@ -13,6 +13,8 @@ const {
 } = require("@whiskeysockets/baileys");
 const { upload } = require("./mega");
 
+const SESSION_PATH = "./tmp/session/";
+
 function removeFile(FilePath) {
   if (fs.existsSync(FilePath)) {
     fs.rmSync(FilePath, { recursive: true, force: true });
@@ -23,7 +25,7 @@ router.get("/", async (req, res) => {
   let num = req.query.number;
   if (!num) return res.status(400).send({ error: "Number is required" });
 
-  const { state, saveCreds } = await useMultiFileAuthState(`./session`);
+  const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
 
   try {
     const RobinPairWeb = makeWASocket({
@@ -53,7 +55,7 @@ router.get("/", async (req, res) => {
       if (connection === "open") {
         try {
           await delay(10000);
-          const sessionFile = "./session/creds.json";
+          const sessionFile = SESSION_PATH + "creds.json";
           const user_jid = jidNormalizedUser(RobinPairWeb.user.id);
 
           function randomMegaId(length = 6, numberLength = 4) {
@@ -66,6 +68,11 @@ router.get("/", async (req, res) => {
             return `${text}${number}`;
           }
 
+          if (!fs.existsSync(sessionFile)) {
+            console.log("Session file missing");
+            return;
+          }
+
           let mega_url;
           try {
             mega_url = await upload(
@@ -73,13 +80,13 @@ router.get("/", async (req, res) => {
               `${randomMegaId()}.json`
             );
           } catch (e) {
-            console.error("Upload failed:", e);
+            console.error("MEGA Upload failed:", e);
             return;
           }
 
           const sessionString = mega_url.replace("https://mega.nz/file/", "");
-          const caption = `*ROBIN [The powerful WA BOT]*\n\n👉 ${sessionString} 👈\n\n*This is your Session ID. Copy and paste into config.js*\n\n*You can ask questions here:* wa.me/message/WKGLBR2PCETWD1\n\n*Join group:* https://chat.whatsapp.com/GAOhr0qNK7KEvJwbenGivZ`;
-          const warning = `🛑 *Do not share this code with anyone* 🛑`;
+          const caption = `*ROBIN BOT*\n\n👉 ${sessionString} 👈\n\n*Copy this Session ID and paste in config.js*\n\n*Need Help? wa.me/message/WKGLBR2PCETWD1*`;
+          const warning = `🛑 *Do not share this Session ID with anyone!* 🛑`;
 
           await RobinPairWeb.sendMessage(user_jid, {
             image: {
@@ -89,29 +96,25 @@ router.get("/", async (req, res) => {
           });
           await RobinPairWeb.sendMessage(user_jid, { text: sessionString });
           await RobinPairWeb.sendMessage(user_jid, { text: warning });
-        } catch (err) {
-          console.error("Message sending failed:", err);
-          exec("pm2 restart prabath");
-        }
 
-        await delay(100);
-        removeFile("./session");
+          removeFile(SESSION_PATH);
+        } catch (err) {
+          console.error("Error after connection open:", err);
+        }
       } else if (
         connection === "close" &&
         lastDisconnect?.error?.output?.statusCode !== 401
       ) {
-        console.log("Reconnecting...");
+        console.log("Trying to reconnect...");
       }
     });
   } catch (err) {
     console.error("Unexpected error:", err);
-    exec("pm2 restart Robin-md");
-    removeFile("./session");
+    removeFile(SESSION_PATH);
     if (!res.headersSent) res.status(500).send({ code: "Service Unavailable" });
   }
 });
 
 process.on("uncaughtException", (err) => {
   console.error("Caught exception:", err);
-  exec("pm2 restart Robin");
 });
